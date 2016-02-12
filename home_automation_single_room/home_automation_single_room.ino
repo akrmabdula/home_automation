@@ -6,6 +6,7 @@
 
 const int  switchPin1 = 20;
 const int  switchPin2 = 21;
+
 const int relayPin1 = 30;
 const int relayPin2 = 31;
 const int relayPin3 = 32;
@@ -15,8 +16,11 @@ const int relayPin6 = 35;
 const int relayPin7 = 36;
 const int relayPin8 = 37;
 
+const int temperaturePin = 0;
+
 volatile int switchPinState1 = HIGH;
 volatile int switchPinState2 = HIGH;
+float currentTemperature = 0;
 
 void setup() {
   pinMode(switchPin1, INPUT);
@@ -46,10 +50,18 @@ void setup() {
 }
 
 void loop() {
+  //keep the relay state
   digitalWrite(relayPin1, switchPinState1);
   digitalWrite(relayPin2, switchPinState2);
+
+  //read temperature
+  readTemperature();
 }
 
+void readTemperature(){
+  int rawvoltage= analogRead(temperaturePin);
+  currentTemperature = (rawvoltage * 0.004882812 * 100)- 2.5 - 273.15;
+}
 void handleSwitch1() {
   Serial.println("switching relay 1");
   switchPinState1 = !switchPinState1;
