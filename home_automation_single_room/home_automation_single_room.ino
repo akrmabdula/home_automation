@@ -3,10 +3,10 @@
  * Digital Pins Usable For Interrupts - 2, 3, 18, 19, 20, 21
  * 
  */
-#include <b64.h>
-#include <HttpClient.h>
+
 #include <SPI.h>
 #include <Ethernet.h>
+#include <EventManager.h>
 
 static unsigned long lastMillis = 0; // holds the last read millis()
 static int timer_1 = 0; // a repeating timer max time 32768 mS = 32sec use a long if you need a longer timer
@@ -56,6 +56,8 @@ String HTTPget = "";
 
 char mainServer[] = "192.168.1.12"; 
 
+EventManager gMyEventManager;
+
 void setup() {
   Serial.begin(9600);
   while (!Serial) {
@@ -85,6 +87,8 @@ void setup() {
   digitalWrite(relayPin8, HIGH);
 
   lastMillis = millis();
+
+  gMyEventManager.addListener( EventManager::kEventUser0, switchEventsListener );
   
   Ethernet.begin(mac, ip, gateway, subnet); // setup ethernet with params from above
   server.begin();
@@ -106,6 +110,8 @@ void loop() {
   digitalWrite(relayPin7, switchPinState7);
   digitalWrite(relayPin8, switchPinState8);
 
+  //process events in the queue
+  gMyEventManager.processEvent();
   //handle timer events
   handleTimer();
 }
@@ -211,8 +217,6 @@ int getDigitalPinValue(int pin){
 int flipDigitalPin(int pin){
   Serial.print("switching relay ");
   Serial.println(pin);
-  Serial.print("Free ram: ");
-  Serial.println(freeRam());
   if(pin == 1){
      switchPinState1 = !switchPinState1; 
      reportData();
@@ -265,25 +269,25 @@ void reportData(){
         // if you didn't get a connection to the server:
         Serial.println("connection failed");
       }
-  //    while (reportClient.connected())
-  //    {
-  //      if (reportClient.available())
-  //      {
-  //        char c = reportClient.read();
-  //        data += c;
-  //        if (c == '\n' && lineIsBlank)  break;
-  //        if (c == '\n')
-  //        {
-  //          lineIsBlank = true;
-  //        }
-  //        else if (c != '\r')
-  //        {
-  //         lineIsBlank = false;
-  //        }
-  //      }
-  //    }
+//      while (reportClient.connected())
+//      {
+//        if (reportClient.available())
+//        {
+//          char c = reportClient.read();
+//          data += c;
+//          if (c == '\n' && lineIsBlank)  break;
+//          if (c == '\n')
+//          {
+//            lineIsBlank = true;
+//          }
+//          else if (c != '\r')
+//          {
+//           lineIsBlank = false;
+//          }
+//        }
+//      }
   //    Serial.print(data);
-      delay(1); // give the web browser a moment to recieve
+      delay(10); // give the web browser a moment to recieve
       reportClient.stop(); // close connection
 }
 void handleTimer(){
@@ -310,7 +314,8 @@ void handleTimer(){
 void handleSwitch1() {
   if((long)(micros() - last_micros) >= debouncing_time * 1000) {
     //switchPinState1 = !switchPinState1; 
-    flipDigitalPin(1);
+    //flipDigitalPin(1);
+    gMyEventManager.queueEvent( EventManager::kEventUser0, 1 );
     last_micros = micros();
   }
 }
@@ -318,9 +323,17 @@ void handleSwitch1() {
 void handleSwitch2() {
   if((long)(micros() - last_micros) >= debouncing_time * 1000) {
     //switchPinState2 = !switchPinState2; 
-    flipDigitalPin(2);
+    //flipDigitalPin(2);
+    gMyEventManager.queueEvent( EventManager::kEventUser0, 2 );
     last_micros = micros();
   }
+}
+
+void switchEventsListener( int eventCode, int eventParam )
+{
+    Serial.println("Processing interrupt event param: " + eventParam);
+    flipDigitalPin(eventParam);
+    Serial.println("Event processed.");
 }
 
 String buildReportData(){
@@ -339,8 +352,3 @@ int StringContains(String s, String search) {
  return -1;
 }
 
-int freeRam() {
-  extern int __heap_start,*__brkval;
-  int v;
-  return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int) __brkval);  
-}
