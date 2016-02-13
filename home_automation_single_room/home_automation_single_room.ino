@@ -3,7 +3,8 @@
  * Digital Pins Usable For Interrupts - 2, 3, 18, 19, 20, 21
  * 
  */
-
+#include <b64.h>
+#include <HttpClient.h>
 #include <SPI.h>
 #include <Ethernet.h>
 
@@ -12,6 +13,10 @@ static int timer_1 = 0; // a repeating timer max time 32768 mS = 32sec use a lon
 // NOTE timer MUST be a signed number int or long as the code relies on timer_1 being able to be negative
 // NOTE timer_1 is a signed int
 #define TIMER_INTERVAL_1 10000
+
+//debouncing in interrupts
+long debouncing_time = 250; //Debouncing Time in Milliseconds
+volatile unsigned long last_micros;
 
 const int  switchPin1 = 20;
 const int  switchPin2 = 21;
@@ -29,6 +34,7 @@ const int temperaturePin = 0;
 
 volatile int switchPinState1 = HIGH;
 volatile int switchPinState2 = HIGH;
+volatile bool processing = false;
 int switchPinState3 = HIGH;
 int switchPinState4 = HIGH;
 int switchPinState5 = HIGH;
@@ -45,9 +51,10 @@ byte gateway[] = { 192, 168, 1, 1 }; // Gateway
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }; // MAC Address
 
 EthernetServer server = EthernetServer(80); // Port 80
+EthernetClient reportClient;
 String HTTPget = "";
 
-boolean reading = false;
+char mainServer[] = "192.168.1.12"; 
 
 void setup() {
   Serial.begin(9600);
@@ -65,8 +72,8 @@ void setup() {
   pinMode(relayPin7, OUTPUT);
   pinMode(relayPin8, OUTPUT);
   //attach interrupts
-  attachInterrupt(digitalPinToInterrupt(switchPin1), handleSwitch1, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(switchPin2), handleSwitch2, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(switchPin1), handleSwitch1, RISING);
+  attachInterrupt(digitalPinToInterrupt(switchPin2), handleSwitch2, RISING);
   //set the relays off
   digitalWrite(relayPin1, HIGH);
   digitalWrite(relayPin2, HIGH);
@@ -88,6 +95,7 @@ void setup() {
 void loop() {
   //handle web requests
   handlWebRequests();
+
   //keep the relay state
   digitalWrite(relayPin1, switchPinState1);
   digitalWrite(relayPin2, switchPinState2);
@@ -119,7 +127,6 @@ void processClient(EthernetClient client)
 {
   // http request will end with a blank line
   boolean lineIsBlank = true;
- 
   while (client.connected())
   {
     if (client.available())
@@ -198,40 +205,87 @@ int getDigitalPinValue(int pin){
      return digitalRead(relayPin7);
   }else if(pin == 8){
      return digitalRead(relayPin8);
-  }
-  
+  } 
 }
 
 int flipDigitalPin(int pin){
   Serial.print("switching relay ");
   Serial.println(pin);
+  Serial.print("Free ram: ");
+  Serial.println(freeRam());
   if(pin == 1){
      switchPinState1 = !switchPinState1; 
+     reportData();
      return switchPinState1;
   }else if(pin == 2){
      switchPinState2 = !switchPinState2; 
+     reportData();
      return switchPinState2;
   }else if(pin == 3){
      switchPinState3 = !switchPinState3; 
+     reportData();
      return switchPinState3;
   }else if(pin == 4){
      switchPinState4 = !switchPinState4; 
+     reportData();
      return switchPinState4;
   }else if(pin == 5){
      switchPinState5 = !switchPinState5; 
+     reportData();
      return switchPinState5;
   }else if(pin == 6){
      switchPinState6 = !switchPinState6; 
+     reportData();
      return switchPinState6;
   }else if(pin == 7){
      switchPinState7 = !switchPinState7; 
+     reportData();
      return switchPinState7;
   }else if(pin == 8){
      switchPinState8 = !switchPinState8; 
+     reportData();
      return switchPinState8;
   }
 }
 
+void reportData(){
+    reportClient = EthernetClient();
+    String data = buildReportData();
+    Serial.println(data);
+    bool lineIsBlank = false;
+    if (reportClient.connect(mainServer, 9000)) {
+        Serial.println("connected");
+        String request = "GET /arduino/" + data + " HTTP/1.1";
+        // Make a HTTP request:
+        reportClient.println(request);
+        reportClient.println("Host: 192.168.1.5");
+        reportClient.println("Connection: close");
+        reportClient.println();
+      } else {
+        // if you didn't get a connection to the server:
+        Serial.println("connection failed");
+      }
+  //    while (reportClient.connected())
+  //    {
+  //      if (reportClient.available())
+  //      {
+  //        char c = reportClient.read();
+  //        data += c;
+  //        if (c == '\n' && lineIsBlank)  break;
+  //        if (c == '\n')
+  //        {
+  //          lineIsBlank = true;
+  //        }
+  //        else if (c != '\r')
+  //        {
+  //         lineIsBlank = false;
+  //        }
+  //      }
+  //    }
+  //    Serial.print(data);
+      delay(1); // give the web browser a moment to recieve
+      reportClient.stop(); // close connection
+}
 void handleTimer(){
   // set millisTick at the top of each loop if and only if millis() has changed
   unsigned long deltaMillis = 0; // clear last result
@@ -249,15 +303,31 @@ void handleTimer(){
     // if we want exactly 1000 delay to next time even if this one was late then just use timeOut = 1000;
     // do time out stuff here
     Serial.println("Repeating Timer 1 timed out");
+    reportData();
   }
 }
 
 void handleSwitch1() {
-   flipDigitalPin(1);
+  if((long)(micros() - last_micros) >= debouncing_time * 1000) {
+    //switchPinState1 = !switchPinState1; 
+    flipDigitalPin(1);
+    last_micros = micros();
+  }
 }
 
 void handleSwitch2() {
-  flipDigitalPin(2);
+  if((long)(micros() - last_micros) >= debouncing_time * 1000) {
+    //switchPinState2 = !switchPinState2; 
+    flipDigitalPin(2);
+    last_micros = micros();
+  }
+}
+
+String buildReportData(){
+  String identifier = "0001-";
+  return identifier + switchPinState1 + "-" + switchPinState2 + "-" + switchPinState3 +
+  "-" + switchPinState4 + "-" + switchPinState5 + "-" + switchPinState6 + "-" + switchPinState7 + "-" + switchPinState8 +
+  "-" + analogRead(0);
 }
 
 int StringContains(String s, String search) {
@@ -267,4 +337,10 @@ int StringContains(String s, String search) {
         if (s.substring(i, i + lgsearch) == search) return i;
     }
  return -1;
+}
+
+int freeRam() {
+  extern int __heap_start,*__brkval;
+  int v;
+  return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int) __brkval);  
 }
