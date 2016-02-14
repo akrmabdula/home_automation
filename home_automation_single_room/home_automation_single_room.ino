@@ -7,12 +7,15 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <EventManager.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 static unsigned long lastMillis = 0; // holds the last read millis()
 static int timer_1 = 0; // a repeating timer max time 32768 mS = 32sec use a long if you need a longer timer
 // NOTE timer MUST be a signed number int or long as the code relies on timer_1 being able to be negative
 // NOTE timer_1 is a signed int
 #define TIMER_INTERVAL_1 10000
+#define ONE_WIRE_BUS 2
 
 //debouncing in interrupts
 long debouncing_time = 250; //Debouncing Time in Milliseconds
@@ -58,6 +61,12 @@ char mainServer[] = "192.168.1.12";
 
 EventManager gMyEventManager;
 
+//one wire temp sensor DS18B20+
+// Setup a oneWire instance to communicate with any OneWire devices 
+// (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
 void setup() {
   Serial.begin(9600);
   while (!Serial) {
@@ -94,6 +103,9 @@ void setup() {
   server.begin();
   Serial.print("server is at ");
   Serial.println(Ethernet.localIP());
+
+  //start up temp sensor
+  sensors.begin();
 }
 
 void loop() {
@@ -112,8 +124,16 @@ void loop() {
 
   //process events in the queue
   gMyEventManager.processEvent();
+  
   //handle timer events
   handleTimer();
+}
+
+float readTemperature(){
+  sensors.requestTemperatures(); // Send the command to get temperatures
+  Serial.print("Temperature for Device 1 is: ");
+  Serial.println(sensors.getTempCByIndex(0));
+  return sensors.getTempCByIndex(0);
 }
 
 void handlWebRequests(){
@@ -337,10 +357,11 @@ void switchEventsListener( int eventCode, int eventParam )
 }
 
 String buildReportData(){
+  float temperature = readTemperature();
   String identifier = "0001-";
   return identifier + switchPinState1 + "-" + switchPinState2 + "-" + switchPinState3 +
   "-" + switchPinState4 + "-" + switchPinState5 + "-" + switchPinState6 + "-" + switchPinState7 + "-" + switchPinState8 +
-  "-" + analogRead(0);
+  "-" + temperature;
 }
 
 int StringContains(String s, String search) {
