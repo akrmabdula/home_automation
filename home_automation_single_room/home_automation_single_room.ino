@@ -1,3 +1,5 @@
+
+
 /*
  * Code for Arduino Mega
  * Digital Pins Usable For Interrupts - 2, 3, 18, 19, 20, 21
@@ -9,6 +11,8 @@
 #include <EventManager.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include "EmonLib.h"
+
 
 static unsigned long lastMillis = 0; // holds the last read millis()
 static int timer_1 = 0; // a repeating timer max time 32768 mS = 32sec use a long if you need a longer timer
@@ -57,7 +61,7 @@ EthernetServer server = EthernetServer(80); // Port 80
 EthernetClient reportClient;
 String HTTPget = "";
 
-char mainServer[] = "192.168.1.12"; 
+char mainServer[] = "192.168.1.18"; 
 
 EventManager gMyEventManager;
 
@@ -66,6 +70,9 @@ EventManager gMyEventManager;
 // (not just Maxim/Dallas temperature ICs)
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
+
+//Energy monitor obj
+EnergyMonitor emon1;
 
 void setup() {
   Serial.begin(9600);
@@ -106,6 +113,10 @@ void setup() {
 
   //start up temp sensor
   sensors.begin();
+
+  //set up mains voltage reader
+  emon1.voltage(4, 261.26, 1.7);
+  emon1.current(5, 111.1);
 }
 
 void loop() {
@@ -129,6 +140,12 @@ void loop() {
   handleTimer();
 }
 
+String emonCalc(){
+  // Calculate all. No.of crossings, time-out
+  emon1.calcVI(20,2000);          
+  //realPower, apparentPower, Vrms, Irms, powerFactor
+  emon1.serialprint();
+}
 float readTemperature(){
   sensors.requestTemperatures(); // Send the command to get temperatures
   Serial.print("Temperature for Device 1 is: ");
@@ -276,6 +293,7 @@ void reportData(){
     reportClient = EthernetClient();
     String data = buildReportData();
     Serial.println(data);
+
     bool lineIsBlank = false;
     if (reportClient.connect(mainServer, 9000)) {
         Serial.println("connected");
@@ -357,11 +375,13 @@ void switchEventsListener( int eventCode, int eventParam )
 }
 
 String buildReportData(){
-  float temperature = readTemperature();
+  currentTemperature = readTemperature();
+  //power calculations
+  emon1.calcVI(5,300);
   String identifier = "0001-";
   return identifier + switchPinState1 + "-" + switchPinState2 + "-" + switchPinState3 +
   "-" + switchPinState4 + "-" + switchPinState5 + "-" + switchPinState6 + "-" + switchPinState7 + "-" + switchPinState8 +
-  "-" + temperature;
+  "-" + currentTemperature + "-" + emon1.Vrms;
 }
 
 int StringContains(String s, String search) {
